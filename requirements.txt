@@ -1,0 +1,16 @@
+Flask==2.2.5
+python-dotenv==0.19.2
+pinecone-client==3.2.2
+nltk==3.8.1
+sentence-transformers==3.0.1
+scikit-learn==1.2.2
+wikipedia-api==0.5.4
+wikipedia==1.4.0
+langchain==0.2.8
+langchain-community==0.2.7
+langchain-core==0.2.19
+langchain-openai==0.1.16
+langchain-pinecone==0.1.1
+langchain-text-splitters==0.2.2
+tiktoken==0.7.0
+openai==1.35.14

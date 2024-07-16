@@ -1,0 +1,4 @@
+.env
+.DS_Store
+archive/
+notebooks/.ipynb_checkpoints/
