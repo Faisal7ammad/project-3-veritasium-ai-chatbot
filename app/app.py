@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_from_directory
 import os
 import re
 from dotenv import load_dotenv
@@ -75,8 +75,15 @@ qa_chain = RetrievalQA.from_chain_type(
     return_source_documents=True
 )
 
-# Load the pre-trained model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Load the pre-trained model from the local directory
+model_path = "sentence_transformer_model"  # Use relative path instead of absolute
+try:
+    model = SentenceTransformer(model_path)
+    logging.debug(f"Model loaded successfully from {model_path}.")
+except Exception as e:
+    logging.error(f"Error loading model from {model_path}: {e}")
+    model = SentenceTransformer('all-MiniLM-L6-v2')  # Set model to HF path if loading fails 
+
 
 # Define keywords for different query types
 fetch_keywords = [
@@ -272,12 +279,13 @@ class FetchAgent:
 
         if results:
             unique_results = list(dict.fromkeys(results))  # Remove duplicates while maintaining order
-            response = "Here are some video recommendations (while the video might not be strictly about your topic, it might be related):\n"
+            logging.debug(f"Number of unique video matches: {len(unique_results)}")  # Log the number of unique results
+            response = "Here are the top 5 video recommendations (while the video might not be strictly about your topic, it might be related):<br>"
             for title, url in unique_results[:5]:  # Limit to top 5 results
-                response += f"{title}: {url}\n"
+                response += f"{title}: {url}<br><br>"  # Add an extra <br> for better separation
         else:
             response = "No videos found for your query."
-        return response
+        return response.strip()
 
 class VideoSummarizerAgent:
     def __init__(self, fetch_agent, qa_chain):
@@ -314,7 +322,7 @@ class VideoSummarizerAgent:
 
     def extract_keywords(self, query):
         stop_words = set(stopwords.words('english'))
-        custom_stopwords = {'can', 'you', 'share', 'a', 'video', 'url', 'explaining', 'the', 'about', 'is', 'are', 'and', 'in'}
+        custom_stopwords = {'can', 'you', 'share', 'a', 'video', 'url', 'explaining', 'about', 'is', 'are', 'and', 'in'}
         all_stopwords = stop_words.union(custom_stopwords)
 
         query = re.sub(r'[^\w\s]', '', query)  # Remove punctuation
@@ -477,7 +485,7 @@ class OrchestrationAgent:
         best_response = None
 
         # Define threshold for high similarity to reuse the same response
-        high_similarity_threshold = 0.8  # Adjust as necessary
+        high_similarity_threshold = 0.95 
 
         # Check similarity with stored queries in memory
         if memory_history:
@@ -561,6 +569,10 @@ orchestration_agent = OrchestrationAgent(fetch_agent, summarizer_agent, external
 # Initialize Flask app
 app = Flask(__name__)
 
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory('static', path)
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -568,6 +580,7 @@ def index():
 @app.route('/query', methods=['POST'])
 def query():
     data = request.json
+    logging.debug(f"Received query request with data: {data}")
     query = data.get('query')
     context = data.get('context', "")
 
@@ -576,6 +589,8 @@ def query():
 
     # Pass the query through the orchestrator
     response, source = orchestration_agent.allocate_agent(query)
+
+    logging.debug(f"Response: {response}, Source: {source}")
 
     return jsonify({"response": response, "source": source})
 
