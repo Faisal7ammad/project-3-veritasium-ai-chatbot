@@ -6,22 +6,23 @@ from collections import defaultdict
 import wikipedia
 import nltk
 from nltk.corpus import stopwords
-
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import SystemMessage, HumanMessage
 from langchain.chains import RetrievalQA, LLMChain, ConversationChain
 from langchain.vectorstores import Pinecone as LCPinecone
 from langchain.memory import ConversationSummaryBufferMemory
-from langchain.callbacks import get_openai_callback
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import logging
 
 nltk.download('stopwords')
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,16 +30,25 @@ load_dotenv()
 # Access the environment variables
 OPENAI_API_KEY = os.getenv('IH_OPENAI_API_KEY')
 PC_API_KEY = os.getenv('PC_API_KEY')
+HF_TOKEN = os.getenv('HF_TOKEN')
+
+if not OPENAI_API_KEY or not PC_API_KEY:
+    logging.error("OPENAI_API_KEY or PC_API_KEY not set in environment variables")
 
 # Set the environment variables
 os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
+os.environ['HF_TOKEN'] = HF_TOKEN
 
 # Initialize Pinecone
-pc = Pinecone(api_key=PC_API_KEY)
-
-# Initialize the Pinecone index
-index_name = "veritasium-vs-final"
-pinecone_index = pc.Index(index_name)
+try:
+    pc = Pinecone(api_key=PC_API_KEY)
+    # Initialize the Pinecone index
+    index_name = "veritasium-vs-final"
+    pinecone_index = pc.Index(index_name)
+    logging.debug(f"Pinecone index '{index_name}' initialized successfully.")
+except Exception as e:
+    logging.error(f"Error initializing Pinecone index: {e}")
+    pinecone_index = None
 
 # Initialize embeddings
 embeddings_model = OpenAIEmbeddings(api_key=OPENAI_API_KEY, model='text-embedding-ada-002')
@@ -65,9 +75,8 @@ qa_chain = RetrievalQA.from_chain_type(
     return_source_documents=True
 )
 
-# Load the pre-trained model from the local directory
-model_path = 'deployment/sentence_transformer_model'
-model = SentenceTransformer(model_path)
+# Load the pre-trained model
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Define keywords for different query types
 fetch_keywords = [
@@ -148,7 +157,7 @@ def ask_gpt_with_retriever(query, context=""):
 
     # Log retrieved documents for verification
     retrieved_texts = "\n\n".join(doc.page_content for doc in source_documents)
-    print("Retrieved Documents:\n", retrieved_texts)
+    logging.debug("Retrieved Documents:\n%s", retrieved_texts)
 
     # Combine retrieved texts with the existing context
     combined_context = context + "\n\nRetrieved documents:\n" + retrieved_texts
@@ -178,10 +187,10 @@ class FetchAgent:
                 include_metadata=True
             )
             all_ids = [match['id'] for match in query_response['matches']]
-            print(f"Fetched {len(all_ids)} video IDs.")
+            logging.debug(f"Fetched {len(all_ids)} video IDs.")
             return all_ids
         except Exception as e:
-            print(f"An error occurred while fetching video IDs: {e}")
+            logging.error(f"An error occurred while fetching video IDs: {e}")
             return []
 
     def fetch_video_metadata(self, video_ids):
@@ -189,13 +198,13 @@ class FetchAgent:
             video_data = self.pinecone_index.fetch(ids=video_ids)
             return video_data['vectors']
         except Exception as e:
-            print(f"An error occurred while fetching video metadata: {e}")
+            logging.error(f"An error occurred while fetching video metadata: {e}")
             return {}
 
     def fetch_video_urls(self, keyword_phrase, all_ids):
         results = defaultdict(list)
         if not all_ids:
-            print("No video IDs found.")
+            logging.debug("No video IDs found.")
             return results
 
         # Vectorize the query
@@ -207,7 +216,7 @@ class FetchAgent:
             batch_ids = all_ids[i:i+batch_size]
             video_metadata_batch = self.fetch_video_metadata(batch_ids)
             if not video_metadata_batch:
-                print("No video metadata found.")
+                logging.debug("No video metadata found.")
                 continue
 
             for chunk_id, video_metadata in video_metadata_batch.items():
@@ -230,6 +239,8 @@ class FetchAgent:
                     if base_video_id not in results or results[base_video_id][2] < relevance_score:
                         results[base_video_id] = (title, metadata['url'], relevance_score)
 
+            logging.debug(f"Processed batch {i // batch_size + 1}/{len(all_ids) // batch_size + 1}")
+
         # Sort results by relevance score in descending order
         sorted_results = sorted(results.values(), key=lambda x: x[2], reverse=True)
         return [(title, url) for title, url, _ in sorted_results]
@@ -248,7 +259,7 @@ class FetchAgent:
 
     def run(self, query):
         keyword_phrase = self.extract_keywords(query)
-        print(f"Extracted Keyword Phrase: {keyword_phrase}")  # Print extracted keywords for debugging
+        logging.debug(f"Extracted Keyword Phrase: {keyword_phrase}")  # Print extracted keywords for debugging
 
         if not keyword_phrase:
             return "No relevant keywords found in the query."
@@ -289,10 +300,10 @@ class VideoSummarizerAgent:
                     combined_transcriptions.extend(transcription)
 
             combined_text = " ".join(combined_transcriptions)
-            print(f"Fetched and combined transcription for video ID {base_video_id}")
+            logging.debug(f"Fetched and combined transcription for video ID {base_video_id}")
             return combined_text
         except Exception as e:
-            print(f"An error occurred while fetching video chunks for video ID {base_video_id}: {e}")
+            logging.error(f"An error occurred while fetching video chunks for video ID {base_video_id}: {e}")
             return ""
 
     def filter_content(self, text):
@@ -342,7 +353,7 @@ class VideoSummarizerAgent:
         match = re.search(r'(?:v=|video id |youtu\.be/)([\w-]+)', video_url_or_title)
         if match:
             video_id = match.group(1)
-            print(f"Extracted video ID from query: {video_id}")
+            logging.debug(f"Extracted video ID from query: {video_id}")
             return video_id
         else:
             all_ids = self.fetch_agent.fetch_all_video_ids()
@@ -351,10 +362,10 @@ class VideoSummarizerAgent:
 
             best_match_id = self.search_similar_videos(video_url_or_title, all_ids)
             if best_match_id:
-                print(f"Extracted video ID from title search: {best_match_id}")
+                logging.debug(f"Extracted video ID from title search: {best_match_id}")
                 return best_match_id
             else:
-                print("No matching video found.")
+                logging.debug("No matching video found.")
                 return None
 
     def summarize_video(self, video_url_or_title):
@@ -373,11 +384,11 @@ class VideoSummarizerAgent:
             # Generate summary using ask_gpt_with_retriever with a refined prompt
             summary_prompt = f"Provide a comprehensive and concise summary of the following video, removing any promotional content or irrelevant details:\n\n{filtered_text}"
             summary = ask_gpt_with_retriever(summary_prompt)
-            print(f"Generated summary for video ID {video_id}")
+            logging.debug(f"Generated summary for video ID {video_id}")
             return summary.strip()
         except Exception as e:
-            print(f"An unexpected error occurred for video {video_url_or_title}: {e}")
-            return "Error: Unable to summarize the video due to an unexpected issue."
+            logging.error(f"An unexpected error occurred for video {video_url_or_title}: {e}")
+            return "I was unable to summarize the video due to an unexpected issue. Try again."
 
     def run(self, query):
         summary = self.summarize_video(query)
@@ -390,29 +401,32 @@ class ExternalKnowledgeRetrievalAgent:
     def fetch_wikipedia_info(self, query):
         try:
             search_results = wikipedia.search(query)
+            logging.debug(f"Wikipedia search results for '{query}': {search_results}")
             if not search_results:
-                print(f"No relevant search results found for query: '{query}'")
+                logging.debug(f"No relevant search results found for query: '{query}'")
                 return "No relevant information found. Please provide more details or check your query.", "None"
 
             page = wikipedia.page(search_results[0])
             summary = page.summary
-            print(f"Successfully fetched information for '{query}' from Wikipedia.")
-            return f"I couldn't find relevant information on Veritasium's YouTube channel, but here's some information from Wikipedia:\n\n{summary}", "Wikipedia"
+            logging.debug(f"Successfully fetched information for '{query}' from Wikipedia: {summary}")
+            return f"I couldn't find relevant information in Veritasium's YouTube channel, but here's some information from Wikipedia:\n\n{summary}", "Wikipedia"
 
         except wikipedia.exceptions.DisambiguationError as e:
-            print(f"Disambiguation error while fetching Wikipedia info for query '{query}': {e}")
-            return "Error: Your query is ambiguous. Please provide more specific information.", "Wikipedia"
+            logging.error(f"Disambiguation error while fetching Wikipedia info for query '{query}': {e}")
+            options = '\n'.join(e.options[:5])  # Show top 5 options for disambiguation
+            return f"Wikipedia: Your query is ambiguous. Please provide more specific information. Possible options:\n{options}", "Wikipedia"
 
         except wikipedia.exceptions.PageError as e:
-            print(f"Page error while fetching Wikipedia info for query '{query}': {e}")
-            return "Error: The page does not exist. Please check your query and try again.", "Wikipedia"
+            logging.error(f"Page error while fetching Wikipedia info for query '{query}': {e}")
+            return "The page does not exist on Wikipedia. Please check your query and try again.", "Wikipedia"
 
         except Exception as e:
-            print(f"An error occurred while fetching Wikipedia info for query '{query}': {e}")
-            return "Error: Unable to retrieve information from Wikipedia due to an unexpected issue.", "Wikipedia"
+            logging.error(f"An error occurred while fetching Wikipedia info for query '{query}': {e}")
+            return "I was Unable to retrieve information from Wikipedia due to an unexpected issue.", "Wikipedia"
 
     def answer_query(self, query):
         response, source = self.fetch_wikipedia_info(query)
+        logging.debug(f"Wikipedia answer for query '{query}': {response}")
         return response, source
 
 # Initialize Agents
@@ -448,16 +462,24 @@ class OrchestrationAgent:
             return 'general'
 
     def allocate_agent(self, query):
-        # Check if the query has been answered before by looking into memory
+        # Load memory variables
         memory_variables = self.memory.load_memory_variables({})
         memory_history = memory_variables.get('history', '')
 
         # Debug: Print memory_history structure
-        print("Memory History:", memory_history)
+        logging.debug("Memory History: %s", memory_history)
 
         # Encode the new query
         query_embedding = model.encode([query])
 
+        # Initialize best similarity and response
+        best_similarity = 0
+        best_response = None
+
+        # Define threshold for high similarity to reuse the same response
+        high_similarity_threshold = 0.8  # Adjust as necessary
+
+        # Check similarity with stored queries in memory
         if memory_history:
             memory_entries = memory_history.split('\nHuman: ')
             for entry in memory_entries:
@@ -473,16 +495,25 @@ class OrchestrationAgent:
                         # Compute cosine similarity
                         similarity_score = cosine_similarity(query_embedding, stored_query_embedding)[0][0]
 
-                        # Define a threshold for considering the stored response relevant
-                        threshold = 0.32
-                        if similarity_score > threshold:
+                        # If similarity is high enough, reuse the previous response
+                        if similarity_score > high_similarity_threshold:
+                            logging.debug(f"High similarity found: {similarity_score}")
                             response = f"From Memory: {stored_response}"
                             source = "Memory"
                             return response, source
 
+                        # Update best similarity and response if it's the best seen so far
+                        if similarity_score > best_similarity:
+                            best_similarity = similarity_score
+                            best_response = stored_response
+
         # Identify the task type
         task_type = self.identify_task(query)
-        print(f"Identified task: {task_type}")
+        logging.debug(f"Identified task: {task_type}")
+
+        # Initialize response and source variables
+        response = ""
+        source = ""
 
         # Allocate to the correct agent based on the task type
         if task_type == 'fetch':
@@ -493,17 +524,31 @@ class OrchestrationAgent:
             source = "VideoSummarizerAgent"
         else:
             response = ask_gpt_with_retriever(query)
-            if any(phrase in response.lower() for phrase in lack_of_information_phrases):
-                response, source = self.external_knowledge_agent.answer_query(query)
-                if "error" in response.lower() or "no relevant information found" in response.lower():
-                    response = "I don't know. Something might have went wrong! Please rephrase or ask another question :)"
-                    source = "None"
-            else:
-                source = "Retriever"
+            source = "Retriever"
 
-        # Store the response in memory
-        self.memory.save_context({"input": query}, {"output": response})
+            # Check if the response lacks specific information
+            if source == "Retriever":
+                response_embedding = model.encode([response])
+                lack_of_information_embeddings = model.encode(lack_of_information_phrases)
+                similarity_scores = cosine_similarity(response_embedding, lack_of_information_embeddings)
+                max_similarity = max(similarity_scores[0])
 
+                if max_similarity > 0.2:  # Use a similarity threshold to detect lack of information
+                    if any(phrase in response.lower() for phrase in lack_of_information_phrases):
+                        logging.debug(f"Lack of information detected, switching to Wikipedia for query: {query}")
+                        response, source = self.external_knowledge_agent.answer_query(query)
+                        if any(phrase in response.lower() for phrase in lack_of_information_phrases):
+                            logging.error("Wikipedia also failed to provide useful information.")
+                            response = "I don't know. Something might have gone wrong! Please rephrase or ask another question :)"
+                            source = "None"
+                        else:
+                            source = "Wikipedia"
+
+        # Store the response in memory only if it's from FetchAgent, VideoSummarizerAgent, or ExternalKnowledgeAgent and it's informative
+        if source in ["FetchAgent", "VideoSummarizerAgent", "Wikipedia"] and not response.startswith("From Memory:"):
+            self.memory.save_context({"input": query}, {"output": response})
+
+        logging.debug(f"Response: {response}, Source: {source}")
         return response, source
 
 # Initialize memory and conversation chain

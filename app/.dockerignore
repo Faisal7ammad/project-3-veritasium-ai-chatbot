@@ -1,0 +1,12 @@
+# .dockerignore
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sql
+*.sqlite
+.DS_Store
+archive
+
