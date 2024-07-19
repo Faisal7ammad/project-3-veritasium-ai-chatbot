@@ -1,5 +1,91 @@
 ![logo_ironhack_blue 7](https://user-images.githubusercontent.com/23629340/40541063-a07a0a8a-601a-11e8-91b5-2f13e4e6b441.png)
 
+# Veritasium Youtube Channel - AI Chatbot
+
+## Repository Structure
+
+```plaintext
+project-3-veritasium-ai-chatbot/
+├── app/
+│   ├── app.py
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── sentence_transformer_model/
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── scripts.js
+├── templates/
+│   └── index.html
+├── docs/
+│   ├── Presentation on Veritasium Chatbot.pdf
+│   ├── Report on Project 3 - Business Case for Building a Multimodal AI ChatBot for YT Video QA.pdf
+│   └── Veritasium AI Chatbot - Flowchart.jpg
+├── notebooks/
+│   ├── 01_project_3_Veritasium_Nested_Data_Extraction.ipynb
+│   ├── 02_project_3_Veritasium_Transcriptions.ipynb
+│   ├── 03_project_3_Veritasium_Batch_Vectorization.ipynb
+│   ├── 04_project_3_Veritasium_Agents.ipynb
+│   ├── 05_project_3_Veritasium_Orchestration.ipynb
+│   └── 06_project_3_Veritasium_Deployment_testing.ipynb
+├── data/
+│   ├── 0-videos_metadata.json
+│   ├── 1-categorized_videos_metadata.json
+│   ├── 2-transcribed_videos_metadata.json
+│   ├── 3-chunked_transcriptions.json
+│   ├── 4-reference_responses.json
+│   └── 5-evaluation_results.json
+└── README.md
+```
+
+## Project Summary
+
+### Introduction
+The Veritasium Chatbot project was developed to enhance user interaction with content from the Veritasium YouTube channel. The chatbot enables users to quickly access relevant information, summaries, and external context without needing to watch entire videos. This README outlines the project steps, agent development, memory system, deployment, and evaluation results.
+
+### Project Steps
+1. **Data Acquisition and Initial Categorization**
+   - Data for approximately 350 Veritasium videos was collected using the YouTube Data API.
+   - Initial categorization of videos was performed using GPT based on video titles and descriptions.
+   - Notebook: `01_project_3_Veritasium_Categorized_Data_Extraction.ipynb`
+
+2. **Adding Transcriptions**
+   - Transcriptions were added using `yt_dlp` and OpenAI's Whisper-medium model, enhancing categorization and summarization accuracy.
+   - Notebook: `02_project_3_Veritasium_Transcriptions.ipynb`
+
+3. **Recategorization, Preprocessing, and Vectorization**
+   - Data was recategorized using GPT based on comprehensive video content.
+   - Preprocessing included text splitting, summarization, metadata enrichment, embeddings generation, and data cleaning.
+   - Processed data chunks were stored in Pinecone for efficient retrieval.
+   - Notebook: `03_project_3_Veritasium_Batch_Vectorization.ipynb`
+
+4. **Agent Development and Testing**
+   - **Main Agent:** Retrieves and integrates relevant information to answer user queries.
+   - **Fetch Agent:** Retrieves video information based on keywords or categories.
+   - **Video Summarizer Agent:** Provides concise summaries of video content.
+   - **External Knowledge Retrieval Agent:** Sources answers from external databases when necessary.
+   - **Allocate Agent:** Determines the appropriate agent for each query based on context.
+   - Notebook: `04_project_3_Veritasium_Agents.ipynb`
+
+5. **Orchestration and Memory System**
+   - Orchestrated agents for seamless interaction and optimized response processes through the Orchestration Agent.
+   - Integrated a Conversation Summary Buffer Memory to maintain context and reduce token usage, ensuring efficient and relevant interactions.
+   - Notebook: `05_project_3_Veritasium_Orchestration.ipynb`
+
+6. **Deployment Testing and Evaluation**
+   - Initial testing and debugging were conducted locally using Flask & Docker.
+   - Deployed on Railway for broader access and further evaluation.
+   - Achieved an average success rate of 72.38% in response accuracy during deployment testing.
+   - Notebook: `06_project_3_Veritasium_deployment_testing.ipynb`
+
+### Conclusion
+The Veritasium Chatbot project highlights the potential of combining advanced machine learning and AI models with cloud-based services to manage and interact with YouTube video content effectively. Future enhancements could improve speed, handling of ambiguous queries, agent allocation precision, memory usage, and user interface aesthetics.
+
+
+- - - - - -
+
+
 # Project III | Business Case: Building a Multimodal AI ChatBot for YouTube Video QA
 
 Building a chatbot that can translate YouTube videos into text and allow for natural language querying offers several compelling business cases.
